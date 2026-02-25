@@ -1,6 +1,12 @@
+version: '3.8'
+
 services:
-  mqttx-cli:
-    image: emqx/mqttx-cli
-    container_name: mqttx-cli
-    stdin_open: true
-    tty: true
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: ecoguard-broker
+    ports:
+      - "1883:1883" # Standard TCP for testing
+      - "8883:8883" # mTLS port for the final architecture
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+    restart: unless-stopped

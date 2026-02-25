@@ -1,0 +1,14 @@
+# MQTT 5.0 Listener on the designated secure port
+listener 8883
+
+# Mutual TLS (mTLS) Certificates
+cafile /mosquitto/config/certs/ca.crt
+certfile /mosquitto/config/certs/broker.crt
+keyfile /mosquitto/config/certs/broker.key
+
+# Force clients (like the Rust agent and React dashboard) to provide their own certs
+require_certificate true
+use_identity_as_username true
+
+# Access Control Lists (ACL) mapping
+acl_file /mosquitto/config/acl.conf
