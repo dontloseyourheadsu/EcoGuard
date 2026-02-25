@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+# Create a directory to store the certificates safely
+# NOTE: Ensure 'certs/' is in your .gitignore file!
+mkdir -p certs
+cd certs
+
+echo "🔒 1. Generating the Root Certificate Authority (CA)..."
+openssl req -new -x509 -days 365 -nodes -newkey rsa:2048 \
+  -keyout ca.key -out ca.crt \
+  -subj "/C=<<INSERT_COUNTRY_CODE>>/ST=<<INSERT_STATE>>/L=<<INSERT_CITY>>/O=<<INSERT_ORGANIZATION>>/CN=<<INSERT_ORG>>-Root-CA"
+
+echo "🏢 2. Generating the Mosquitto Broker Certificate..."
+openssl genrsa -out broker.key 2048
+openssl req -new -key broker.key -out broker.csr \
+  -subj "/C=<<INSERT_COUNTRY_CODE>>/ST=<<INSERT_STATE>>/L=<<INSERT_CITY>>/O=<<INSERT_ORGANIZATION>>/CN=<<INSERT_BROKER_NAME>>"
+openssl x509 -req -in broker.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out broker.crt -days 365
+
+echo "⚙️ 3. Generating the Rust Agent (Edge) Certificate..."
+openssl genrsa -out rust_agent.key 2048
+openssl req -new -key rust_agent.key -out rust_agent.csr \
+  -subj "/C=<<INSERT_COUNTRY_CODE>>/ST=<<INSERT_STATE>>/L=<<INSERT_CITY>>/O=<<INSERT_ORGANIZATION>>/CN=<<INSERT_AGENT_NAME>>"
+openssl x509 -req -in rust_agent.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out rust_agent.crt -days 365
+
+echo "💻 4. Generating the React Dashboard Certificate..."
+openssl genrsa -out dashboard.key 2048
+openssl req -new -key dashboard.key -out dashboard.csr \
+  -subj "/C=<<INSERT_COUNTRY_CODE>>/ST=<<INSERT_STATE>>/L=<<INSERT_CITY>>/O=<<INSERT_ORGANIZATION>>/CN=<<INSERT_DASHBOARD_NAME>>"
+openssl x509 -req -in dashboard.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out dashboard.crt -days 365
+
+# Cleanup the temporary CSR files
+rm *.csr
+
+echo "✅ All X.509 certificates generated successfully in the ./certs directory!"
