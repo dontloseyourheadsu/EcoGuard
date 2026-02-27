@@ -1,2 +1,5 @@
+# Ignore secrets folder with sensitive values
+secrets/
+secrets/*
 generate_certs.sh
 *.key

@@ -10,3 +10,14 @@ services:
     volumes:
       - ./mosquitto/config:/mosquitto/config
     restart: unless-stopped
+    
+  influxdb:
+    image: influxdb:2.7
+    container_name: ecoguard-influxdb
+    ports:
+      - "8086:8086"
+    env_file:
+      - ./secrets/influxdb.env
+    volumes:
+      - ./influxdb/data:/var/lib/influxdb2
+    restart: unless-stopped
