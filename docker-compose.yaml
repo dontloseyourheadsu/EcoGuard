@@ -21,3 +21,15 @@ services:
     volumes:
       - ./influxdb/data:/var/lib/influxdb2
     restart: unless-stopped
+
+    
+  telegraf:
+    image: telegraf:1.28
+    container_name: ecoguard-telegraf
+    depends_on:
+      - mosquitto
+      - influxdb
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - ./certs:/etc/telegraf/certs:ro
+    restart: unless-stopped
