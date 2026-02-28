@@ -48,3 +48,10 @@ openssl pkcs12 -export -out dashboard.p12 -inkey dashboard.key -in dashboard.crt
 rm *.csr
 
 echo "✅ All X.509 certificates generated successfully in the ./certs directory!"
+
+# --- Ensure Mosquitto can read the same certs (copy into mosquitto config folder) ---
+echo "📁 Copying certificates into ./mosquitto/config/certs for broker access..."
+mkdir -p ../mosquitto/config/certs
+cp -r ./* ../mosquitto/config/certs/
+chmod 640 ../mosquitto/config/certs/* 2>/dev/null || true
+echo "🔒 Certificates copied to ./mosquitto/config/certs (read-only for Docker)."
