@@ -7,8 +7,10 @@ services:
     ports:
       - "1883:1883" # Standard TCP for testing
       - "8883:8883" # mTLS port for the final architecture
+      - "8083:8083" # WSS (WebSockets Secure) for dashboard
     volumes:
       - ./mosquitto/config:/mosquitto/config
+      - ./certs:/mosquitto/config/certs:ro
     restart: unless-stopped
     
   influxdb:
