@@ -40,6 +40,10 @@ openssl x509 -req -in telegraf.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
   -out telegraf.crt -days 365
 rm telegraf.csr
 
+echo "🔐 6. Exporting the React Dashboard Certificate to PKCS#12 format..."
+
+openssl pkcs12 -export -out dashboard.p12 -inkey dashboard.key -in dashboard.crt -certfile ca.crt
+
 # Cleanup the temporary CSR files
 rm *.csr
 
