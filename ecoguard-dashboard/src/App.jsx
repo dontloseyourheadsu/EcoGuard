@@ -22,11 +22,10 @@ export default function App() {
   });
 
   useEffect(() => {
-    // Connect to Mosquitto via Secure WebSockets
-    // Note: The browser handles the mTLS certificate handshake natively
-    const client = mqtt.connect('wss://localhost:8083', {
+    // Connect to local Mosquitto via WebSockets.
+    const client = mqtt.connect('ws://localhost:8083', {
       clientId: 'react-dashboard',
-      rejectUnauthorized: false, // For local self-signed dev testing
+      username: 'react-dashboard',
     });
 
     client.on('connect', () => {
