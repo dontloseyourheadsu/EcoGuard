@@ -69,6 +69,10 @@ graph TD
 
 - OpenSSL.
 
+Nota Linux/Fedora:
+
+- Si `docker compose up` falla con `docker-credential-desktop: executable file not found`, revisa `~/.docker/config.json` y elimina `"credsStore": "desktop"`.
+
 ### Paso 1: Configurar Seguridad y Certificados (mTLS)
 
 El sistema requiere autenticación mutua. Debes generar tu propia Autoridad Certificadora (CA) y las llaves para cada cliente .
@@ -78,25 +82,45 @@ El sistema requiere autenticación mutua. Debes generar tu propia Autoridad Cert
 
 Nota importante sobre rutas de certificados:
 
-- El script `generate_certs.sh` genera los certificados en `./certs` y además copia automáticamente los archivos necesarios a `./mosquitto/config/certs` para que el broker Mosquitto (que monta `./mosquitto/config`) tenga acceso a los mismos ficheros. Esto permite que Telegraf lea `./certs` mientras que Mosquitto utiliza `./mosquitto/config/certs`.
+- El script `generate_certs.sh` genera los certificados en `./certs` y además copia automáticamente los archivos necesarios a `./mosquito/config/certs` para que el broker Mosquitto (que monta `./mosquito/config`) tenga acceso a los mismos ficheros. Esto permite que Telegraf lea `./certs` mientras que Mosquitto utiliza `./mosquito/config/certs`.
 
-Si prefieres mantener los certificados en otra ubicación, actualiza `docker-compose.yaml` (montajes) y `mosquitto/config/mosquito.conf` (rutas) correspondientemente.
+- El certificado del broker incluye SAN para `localhost`, `127.0.0.1`, `ecoguard-broker` y `mosquitto`, evitando errores TLS de nombre (`NotValidForName`) en el agente Rust.
+
+- `generate_certs.sh` permite exportar `dashboard.p12` sin prompt interactivo usando `DASHBOARD_P12_PASSWORD` (por defecto `changeit`).
+
+- En Linux con contenedores, si hay `Permission denied` leyendo `broker.key`/`telegraf.key`, ajusta permisos de desarrollo local según sea necesario.
+
+Si prefieres mantener los certificados en otra ubicación, actualiza `docker-compose.yaml` (montajes) y `mosquito/config/mosquito.conf` (rutas) correspondientemente.
 
 ### Paso 2: Configurar Reglas de Acceso (ACLs)
 
 Mosquitto restringe quién puede publicar y suscribirse a los tópicos .
 
-1. Coloca el archivo `acl.conf` dentro del directorio de configuración de Mosquitto (`./mosquitto/config/`).
+1. Coloca el archivo `acl.conf` dentro del directorio de configuración de Mosquitto (`./mosquito/config/`).
 2. Verifica que el Agente Rust tenga permisos exclusivos de escritura (`pub`) y los dashboards permisos de lectura (`sub`).
+
+Nota: para la prueba de caos local, el ACL también debe permitir publicación en `ecoguard/env/+/temp` para la identidad usada por el publicador de carga.
 
 ### Paso 3: Levantar la Infraestructura
 
 Inicia el broker de mensajes y la base de datos de series temporales :
 
+Antes de levantar contenedores, crea tu archivo local de secretos a partir de la plantilla:
+
+```bash
+cp secrets/influxdb.env.example secrets/influxdb.env
+```
+
 ```bash
 docker compose up -d
 
 ```
+
+Nota Linux/Fedora (SELinux):
+
+- En Fedora/SELinux, los montajes pueden requerir etiqueta `:Z` en `docker-compose.yaml` para evitar errores de acceso desde contenedores.
+
+- Si cambias credenciales en `secrets/influxdb.env` y ya existe estado previo en `./influxdb/data`, reinicializa esa carpeta para evitar `401 Unauthorized` en Telegraf->InfluxDB.
 
 Nota: el broker expone los puertos `1883`, `8883` (mTLS) y `8083` (WSS para el dashboard web). Asegúrate de no exponer estos puertos en entornos públicos sin las medidas de seguridad necesarias.
 
@@ -111,25 +135,29 @@ cargo run
 
 ### Paso 5: Prueba de Estrés (Generación de Caos)
 
-Para validar que el sistema no se congele bajo estrés, ejecuta el generador de carga MQTT X para simular 50 sensores adicionales :
+Para validar que el sistema no se congele bajo estrés, ejecuta el generador de carga para simular sensores adicionales:
 
 ```bash
 ./run_chaos.sh
 
 ```
 
+Nota: en este repositorio la prueba de caos publica con `mosquitto_pub` dentro de Docker y usa mTLS en `8883`.
+
 ### Paso 6: Configuración del Dashboard Web y Certificado del Navegador
 
-El Dashboard en React se conecta vía WebSockets Seguros (WSS). Para que la conexión mTLS funcione, tu navegador web debe presentar su propia identidad criptográfica.
+El Dashboard en React usa WebSockets locales (`ws://localhost:8083`) para desarrollo rápido.
 
-1. **Empaquetar el Certificado:** En la carpeta `certs/`, convierte tu certificado del dashboard a formato `.p12` (el sistema te pedirá crear una contraseña):
+Si quieres ejecutar el dashboard con WSS + mTLS en navegador, debes configurar el listener seguro en Mosquitto y realizar importación de certificados cliente/CA en el navegador.
+
+1. **(Opcional para WSS+mTLS) Empaquetar Certificado:** En la carpeta `certs/`, convierte tu certificado del dashboard a formato `.p12`:
 
 ```bash
 openssl pkcs12 -export -out dashboard.p12 -inkey dashboard.key -in dashboard.crt -certfile ca.crt
 
 ```
 
-2. **Importar al Navegador:**
+2. **(Opcional para WSS+mTLS) Importar al Navegador:**
    Una vez que hayas generado el archivo `dashboard.p12`, necesitas cargarlo en el almacén de confianza de tu navegador.
    **Para Chrome / Edge:**
 
