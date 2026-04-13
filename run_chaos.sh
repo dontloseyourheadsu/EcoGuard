@@ -1,31 +1,21 @@
 #!/usr/bin/env bash
 
-echo "Generating the env.js payload script..."
+echo "Starting chaos test with Dockerized mosquitto_pub (50 simulated sensors)..."
 
-# This creates the env.js file needed by MQTT X CLI to simulate environmental noise
-cat << 'EOF' > env.js
-function generator(faker, options) {
-  return {
-    sensor_id: faker.datatype.uuid(),
-    temperature: faker.datatype.number({ min: 10, max: 45 }),
-    humidity: faker.datatype.number({ min: 30, max: 90 }),
-    status: "noise"
-  }
-}
-module.exports = generator;
-EOF
-
-echo "Starting MQTT X CLI Chaos Test (50 simulated sensors)..."
-
-# Runs the MQTTX CLI from a docker container, aiming at your Mosquitto container
-# We use host networking here so it can easily find localhost:1883
-docker run --rm --network host -v $(pwd):/app -w /app emqx/mqttx-cli \
-  mqttx simulate \
-  --file env.js \
-  --count 50 \
-  --interval 100 \
-  -h localhost \
-  -p 1883 \
-  -t 'ecoguard/env/+/temp'
+# Publish synthetic environmental messages to the local broker over TCP (1883).
+# This avoids host package installs and keeps execution portable.
+docker run --rm --network host -v "$(pwd)/certs:/certs:ro" eclipse-mosquitto:latest sh -c '
+  i=1
+  while [ "$i" -le 500 ]; do
+    sensor=$(( (i % 50) + 1 ))
+    temp=$(( (RANDOM % 35) + 10 ))
+    hum=$(( (RANDOM % 60) + 30 ))
+    ts=$(date +%s)
+    payload=$(printf "{\"sensor_id\":\"env-%02d\",\"temperature\":%d,\"humidity\":%d,\"status\":\"noise\",\"timestamp\":%s}" "$sensor" "$temp" "$hum" "$ts")
+    mosquitto_pub -h localhost -p 8883 --cafile /certs/ca.crt --cert /certs/rust_agent.crt --key /certs/rust_agent.key -t "ecoguard/env/$sensor/temp" -m "$payload"
+    i=$((i + 1))
+    sleep 0.1
+  done
+'
 
 echo "Chaos test complete!"
