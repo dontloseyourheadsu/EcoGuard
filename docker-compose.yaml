@@ -4,13 +4,14 @@ services:
   mosquitto:
     image: eclipse-mosquitto:latest
     container_name: ecoguard-broker
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquito.conf"]
     ports:
       - "1883:1883" # Standard TCP for testing
       - "8883:8883" # mTLS port for the final architecture
       - "8083:8083" # WSS (WebSockets Secure) for dashboard
     volumes:
-      - ./mosquitto/config:/mosquitto/config
-      - ./certs:/mosquitto/config/certs:ro
+      - ./mosquito/config:/mosquitto/config:Z
+      - ./certs:/mosquitto/config/certs:ro,Z
     restart: unless-stopped
     
   influxdb:
@@ -21,7 +22,7 @@ services:
     env_file:
       - ./secrets/influxdb.env
     volumes:
-      - ./influxdb/data:/var/lib/influxdb2
+      - ./influxdb/data:/var/lib/influxdb2:Z
     restart: unless-stopped
 
     
@@ -31,7 +32,10 @@ services:
     depends_on:
       - mosquitto
       - influxdb
+    env_file:
+      - ./secrets/influxdb.env
     volumes:
-      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
-      - ./certs:/etc/telegraf/certs:ro
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro,Z
+      - ./certs:/etc/telegraf/certs:ro,Z
+    user: "0:0"
     restart: unless-stopped
