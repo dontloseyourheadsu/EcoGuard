@@ -1,5 +1,29 @@
-# Ignore secrets folder with sensitive values
-secrets/
+# ------------------------------
+# Secrets and local env files
+# ------------------------------
 secrets/*
-generate_certs.sh
+!secrets/*.example
+
+# ------------------------------
+# Generated certificates/keys
+# ------------------------------
+certs/
+mosquito/config/certs/
+mosquitto/config/certs/
 *.key
+*.crt
+*.csr
+*.srl
+*.p12
+
+# ------------------------------
+# Runtime data and temp files
+# ------------------------------
+influxdb/data/
+env.js
+
+# ------------------------------
+# Local scripts
+# ------------------------------
+generate_certs.sh
+run_chaos.sh
