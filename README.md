@@ -16,18 +16,18 @@
 
 ```mermaid
 graph TD
-    subgraph Host [Entorno de Ejecución Linux]
+    subgraph Host [Entorno de Ejecucion Linux]
         RustAgent[Agente Inteligente Rust<br/>Edge Computing / FFT]
         MQTTX[MQTT X CLI<br/>Generador de Carga / Caos]
-        Web[React Dashboard Web<br/>Vite (UI)]
-        Api[History API Node/Express<br/>GET /api/history]
+        Web[React Dashboard Web<br/>Vite UI]
+        Api[History API Node Express<br/>GET /api/history]
         App[React Native App<br/>Expo / Push Alerts]
     end
 
     subgraph Infra [Infraestructura de Datos Docker]
         Broker((Mosquitto Broker<br/>1883 / 8883 mTLS / 8083 WSS))
         Telegraf[Telegraf MQTT Consumer]
-        Influx[(InfluxDB 2.x<br/>Bucket: telemetry)]
+        Influx[(InfluxDB 2.x<br/>Bucket telemetry)]
     end
 
     RustAgent -- "Pub: ecoguard/turbine/+/data<br/>(TLS 8883)" --> Broker
@@ -59,6 +59,53 @@ graph TD
 ---
 
 ## 🚀 Guía de Instalación y Despliegue
+
+### ⚡ Flujo Rápido: Primera vez vs Arranque diario
+
+Si ya creaste certificados, ACL y secretos, no necesitas repetir todo el setup.
+
+**Primera vez (one-time):**
+
+1. Generar certificados (`./generate_certs.sh`).
+2. Confirmar ACL (`./mosquito/config/acl.conf`).
+3. Crear secretos de Influx (`cp secrets/influxdb.env.example secrets/influxdb.env` y ajustar valores).
+4. Levantar infraestructura (`docker compose up -d`).
+5. Levantar agente Rust (`cd ecoguard-agent && cargo run`).
+6. Levantar dashboard (`cd ecoguard-dashboard && npm install && npm run dev`).
+
+**Arranque diario (ya todo creado):**
+
+1. Levantar infraestructura:
+
+```bash
+docker compose up -d
+```
+
+2. Levantar agente Rust:
+
+```bash
+cd ecoguard-agent
+cargo run
+```
+
+3. Levantar dashboard web:
+
+```bash
+cd ecoguard-dashboard
+npm run dev
+```
+
+4. (Opcional) prueba de caos:
+
+```bash
+./run_chaos.sh
+```
+
+**Cuando SI debes repetir pasos one-time:**
+
+- Regeneraste o vencieron certificados.
+- Cambiaste identidades/ACLs de clientes MQTT.
+- Cambiaste credenciales iniciales de Influx y reiniciaste estado de `./influxdb/data`.
 
 ### Requisitos Previos
 
