@@ -19,25 +19,28 @@ graph TD
     subgraph Host [Entorno de Ejecución Linux]
         RustAgent[Agente Inteligente Rust<br/>Edge Computing / FFT]
         MQTTX[MQTT X CLI<br/>Generador de Carga / Caos]
-    end
-
-    subgraph Infra [Infraestructura de Datos Docker]
-        Broker((Mosquitto Broker<br/>Puerto 8883 mTLS))
-        Telegraf[Telegraf Bridge]
-        Influx[(InfluxDB<br/>Series Temporales)]
-    end
-
-    subgraph Clientes [Capa de Cliente]
-        Web[React Dashboard Web<br/>Vite / WSS]
+        Web[React Dashboard Web<br/>Vite (UI)]
+        Api[History API Node/Express<br/>GET /api/history]
         App[React Native App<br/>Expo / Push Alerts]
     end
 
-    RustAgent -- "Pub: ecoguard/turbine/+/data<br/>(TCP/TLS)" --> Broker
-    MQTTX -- "Pub: ecoguard/env/+/temp<br/>(50+ Sensores)" --> Broker
-    Broker -- "Sincronización" --> Telegraf
-    Telegraf --> Influx
-    Broker -- "Sub: WSS (Puerto 8083)" --> Web
-    Broker -- "Push Triggers" --> App
+    subgraph Infra [Infraestructura de Datos Docker]
+        Broker((Mosquitto Broker<br/>1883 / 8883 mTLS / 8083 WSS))
+        Telegraf[Telegraf MQTT Consumer]
+        Influx[(InfluxDB 2.x<br/>Bucket: telemetry)]
+    end
+
+    RustAgent -- "Pub: ecoguard/turbine/+/data<br/>(TLS 8883)" --> Broker
+    MQTTX -- "Pub: ecoguard/env/+/temp<br/>(Carga/Caos)" --> Broker
+
+    Broker -- "Sub topics turbine" --> Telegraf
+    Telegraf -- "Write time-series" --> Influx
+
+    Web -- "Tiempo real: MQTT over WS/WSS" --> Broker
+    Web -- "Historico: HTTP /api/history" --> Api
+    Api -- "Flux Query API v2" --> Influx
+
+    Broker -- "Eventos / Push triggers" --> App
 
 ```
 
