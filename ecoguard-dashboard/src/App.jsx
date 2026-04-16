@@ -1,14 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import mqtt from 'mqtt';
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   BarElement,
+  LineElement,
+  PointElement,
   Title,
   Tooltip,
 } from 'chart.js';
-import { Bar } from 'react-chartjs-2';
+import { Bar, Line } from 'react-chartjs-2';
+import './App.css';
 
 // Register Chart.js components
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip);
@@ -262,8 +265,12 @@ export default function App() {
     });
 
     client.on('message', (topic, message) => {
-      const data = JSON.parse(message.toString());
-      setTelemetry(data);
+      try {
+        const data = JSON.parse(message.toString());
+        setTelemetry(data);
+      } catch (error) {
+        console.error('Invalid telemetry JSON', error);
+      }
     });
 
     return () => client.end();
@@ -310,7 +317,7 @@ export default function App() {
       {
         label: 'FFT Magnitude',
         data: telemetry.spectrum_peaks,
-        backgroundColor: telemetry.health_zone.includes('Danger') ? 'rgba(255, 99, 132, 0.8)' : 'rgba(54, 162, 235, 0.8)',
+        backgroundColor: liveHealthClass === 'peak' || liveHealthClass === 'bad' ? 'rgba(239, 69, 101, 0.85)' : 'rgba(61, 169, 252, 0.85)',
       },
     ],
   };
@@ -324,29 +331,236 @@ export default function App() {
     },
   };
 
+  const currentHealthClassName = liveHealthClass === 'good' ? 'status-good' : 'status-bad';
+
+  const onRefreshHistory = () => {
+    setHistoryRows([]);
+    setHistoryCursor(null);
+    setHistoryHasMore(false);
+    loadHistoryBatch({ reset: true });
+  };
+
+  const onLoadMoreHistory = () => {
+    loadHistoryBatch({ reset: false });
+  };
+
+  const onTimePresetChange = (event) => {
+    const preset = event.target.value;
+    setHistoryTimePreset(preset);
+    if (preset === TIME_PRESET_CUSTOM) {
+      return;
+    }
+    const nextRange = buildPresetRange(preset);
+    setHistoryStartTime(nextRange.start);
+    setHistoryStopTime(nextRange.stop);
+  };
+
+  const onStartTimeChange = (event) => {
+    setHistoryTimePreset(TIME_PRESET_CUSTOM);
+    setHistoryStartTime(event.target.value);
+  };
+
+  const onStopTimeChange = (event) => {
+    setHistoryTimePreset(TIME_PRESET_CUSTOM);
+    setHistoryStopTime(event.target.value);
+  };
+
   return (
-    <div style={{ padding: '2rem', fontFamily: 'sans-serif', backgroundColor: '#1e1e1e', color: 'white', minHeight: '100vh' }}>
-      <h1>EcoGuard Dashboard</h1>
-      <div style={{ display: 'flex', gap: '2rem', marginBottom: '2rem' }}>
-        <div style={{ padding: '1rem', backgroundColor: '#333', borderRadius: '8px' }}>
-          <h3>Turbine ID</h3>
-          <p style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{telemetry.turbine_id}</p>
+    <div className="app-shell">
+      <header className="header-row">
+        <h1>EcoGuard Dashboard</h1>
+        <div className="view-switch">
+          <button
+            type="button"
+            className={viewMode === VIEW_LIVE ? 'is-active' : ''}
+            onClick={() => setViewMode(VIEW_LIVE)}
+          >
+            Tiempo Real
+          </button>
+          <button
+            type="button"
+            className={viewMode === VIEW_HISTORY ? 'is-active' : ''}
+            onClick={() => setViewMode(VIEW_HISTORY)}
+          >
+            Historico
+          </button>
         </div>
-        <div style={{ padding: '1rem', backgroundColor: '#333', borderRadius: '8px' }}>
-          <h3>Health State</h3>
-          <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: telemetry.health_zone.includes('Danger') ? '#ff4d4d' : '#4dff4d' }}>
-            {telemetry.health_zone}
-          </p>
-        </div>
-        <div style={{ padding: '1rem', backgroundColor: '#333', borderRadius: '8px' }}>
-          <h3>RMS Velocity</h3>
-          <p style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{telemetry.rms_velocity.toFixed(2)} mm/s</p>
-        </div>
-      </div>
-      
-      <div style={{ height: '400px', width: '100%', backgroundColor: '#2a2a2a', padding: '1rem', borderRadius: '8px' }}>
-        <Bar data={chartData} options={chartOptions} />
-      </div>
+      </header>
+
+      {viewMode === VIEW_LIVE && (
+        <>
+          <div className="stats-row">
+            <div className="stat-card">
+              <h3>Turbine ID</h3>
+              <p>{telemetry.turbine_id}</p>
+            </div>
+            <div className="stat-card">
+              <h3>Health State</h3>
+              <p className={currentHealthClassName}>{telemetry.health_zone}</p>
+            </div>
+            <div className="stat-card">
+              <h3>RMS Velocity</h3>
+              <p>{telemetry.rms_velocity.toFixed(2)} mm/s</p>
+            </div>
+          </div>
+
+          <div className="chart-card live-chart-card">
+            <Bar data={chartData} options={chartOptions} />
+          </div>
+        </>
+      )}
+
+      {viewMode === VIEW_HISTORY && (
+        <>
+          <section className="history-controls">
+            <div className="control-item">
+              <label htmlFor="time-preset">Preset Tiempo</label>
+              <select
+                id="time-preset"
+                value={historyTimePreset}
+                onChange={onTimePresetChange}
+              >
+                <option value={TIME_PRESET_1H}>Ultima hora</option>
+                <option value={TIME_PRESET_6H}>Ultimas 6 horas</option>
+                <option value={TIME_PRESET_24H}>Ultimas 24 horas</option>
+                <option value={TIME_PRESET_7D}>Ultimos 7 dias</option>
+                <option value={TIME_PRESET_CUSTOM}>Custom</option>
+              </select>
+            </div>
+
+            <div className="control-item">
+              <label htmlFor="start-time">Desde</label>
+              <input
+                id="start-time"
+                type="datetime-local"
+                value={historyStartTime}
+                onChange={onStartTimeChange}
+              />
+            </div>
+
+            <div className="control-item">
+              <label htmlFor="stop-time">Hasta</label>
+              <input
+                id="stop-time"
+                type="datetime-local"
+                value={historyStopTime}
+                onChange={onStopTimeChange}
+              />
+            </div>
+
+            <div className="control-item">
+              <label htmlFor="batch-size">Batch Size</label>
+              <select
+                id="batch-size"
+                value={historyBatchSize}
+                onChange={(event) => setHistoryBatchSize(Number(event.target.value))}
+              >
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+                <option value={500}>500</option>
+              </select>
+            </div>
+
+            <div className="control-item">
+              <label htmlFor="turbine-filter">Turbina</label>
+              <input
+                id="turbine-filter"
+                type="text"
+                value={historyTurbineFilter}
+                onChange={(event) => setHistoryTurbineFilter(event.target.value)}
+                placeholder="Ej: T-01"
+              />
+            </div>
+
+            <div className="control-item">
+              <label htmlFor="health-filter">Filtro Salud</label>
+              <select
+                id="health-filter"
+                value={historyFilter}
+                onChange={(event) => setHistoryFilter(event.target.value)}
+              >
+                <option value={HEALTH_FILTER_ALL}>Todos</option>
+                <option value={HEALTH_FILTER_GOOD}>Solo Buenos (A/B)</option>
+                <option value={HEALTH_FILTER_BAD}>Solo Malos (C/D)</option>
+                <option value={HEALTH_FILTER_PEAK}>Solo Peak (Zone D)</option>
+              </select>
+            </div>
+
+            <div className="control-actions">
+              <button type="button" onClick={onRefreshHistory} disabled={historyLoading}>
+                {historyLoading ? 'Consultando...' : 'Refrescar'}
+              </button>
+              <button type="button" onClick={onLoadMoreHistory} disabled={historyLoading || !historyHasMore}>
+                Cargar mas
+              </button>
+            </div>
+          </section>
+
+          {historyError && <p className="history-error">{historyError}</p>}
+
+          <section className="history-summary">
+            <article className="summary-card summary-good">
+              <h4>Buenos</h4>
+              <strong>{historySummary.good}</strong>
+            </article>
+            <article className="summary-card summary-bad">
+              <h4>Malos</h4>
+              <strong>{historySummary.bad}</strong>
+            </article>
+            <article className="summary-card summary-peak">
+              <h4>Peak (Danger)</h4>
+              <strong>{historySummary.peak}</strong>
+            </article>
+          </section>
+
+          <div className="chart-card history-chart-card">
+            <Line data={historyChartData} options={historyChartOptions} />
+          </div>
+
+          <section className="history-table-wrap">
+            <table className="history-table">
+              <thead>
+                <tr>
+                  <th>Hora</th>
+                  <th>Turbina</th>
+                  <th>RMS (mm/s)</th>
+                  <th>Health</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>{new Date(row.time).toLocaleString()}</td>
+                    <td>{row.turbineId}</td>
+                    <td>{row.rmsVelocity.toFixed(2)}</td>
+                    <td>
+                      <span
+                        className={`health-badge ${
+                          row.healthClass === 'good'
+                            ? 'health-good'
+                            : row.healthClass === 'peak'
+                              ? 'health-peak'
+                              : 'health-bad'
+                        }`}
+                      >
+                        {row.healthZone}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {historyRows.length === 0 && !historyLoading && !historyError && (
+              <p className="history-empty">No hay datos para los filtros seleccionados.</p>
+            )}
+            {historyHasMore && (
+              <div className="history-autoload" ref={historySentinelRef}>
+                {historyLoading ? 'Cargando siguiente batch...' : 'Auto-load activo al hacer scroll'}
+              </div>
+            )}
+          </section>
+        </>
+      )}
     </div>
   );
 }
