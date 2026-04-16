@@ -1,16 +1,62 @@
-# React + Vite
+# EcoGuard Dashboard (React + Vite)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Dashboard web para visualizacion de telemetria en tiempo real y exploracion historica en InfluxDB.
 
-Currently, two official plugins are available:
+## Ejecutar en desarrollo
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+1. Crea el archivo de entorno para la API local:
 
-## React Compiler
+```bash
+cp .env.example .env
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+2. Ajusta el token y valores de InfluxDB en `.env`.
 
-## Expanding the ESLint configuration
+3. Instala dependencias y arranca todo (frontend + API):
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm install
+npm run dev
+```
+
+El comando `npm run dev` levanta:
+
+- Frontend Vite (por defecto en `5173`)
+- API Node para historico (por defecto en `8787`)
+
+Vite proxya `/api/*` hacia la API local en `8787`.
+
+## Vista Historica
+
+Incluye:
+
+- Paginacion por lotes con cursor temporal.
+- Auto-load al hacer scroll (infinite loading por batches).
+- Filtro de salud: `Todos`, `Buenos (A/B)`, `Malos (C/D)`, `Peak (Zone D)`.
+- Filtro por turbina (`T-01`, etc.).
+- Filtro de tiempo por preset o rango manual (`Desde` / `Hasta`).
+
+## API local (Node)
+
+Endpoint principal:
+
+- `GET /api/history`
+
+Query params:
+
+- `start` (ISO datetime)
+- `stop` (ISO datetime)
+- `limit` (1..1000)
+- `cursor` (ISO datetime para siguiente batch)
+- `healthFilter` (`all|good|bad|peak`)
+- `turbineId` (opcional)
+
+La API consulta InfluxDB y devuelve JSON ya normalizado para la UI.
+
+## Build
+
+```bash
+npm run build
+```
+
+Para produccion puedes desplegar el frontend estatico y la API como servicio Node separado.
