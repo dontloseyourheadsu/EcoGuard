@@ -3,6 +3,7 @@
 # ------------------------------
 secrets/*
 !secrets/*.example
+*.env
 
 # ------------------------------
 # Generated certificates/keys

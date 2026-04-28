@@ -19,9 +19,9 @@ pub async fn setup_mqtt_client(client_id: &str, broker_host: &str, port: u16) ->
     mqttoptions.set_keep_alive(Duration::from_secs(5));
 
     // Load the mTLS certificates generated earlier
-    let ca = fs::read("certs/ca.crt").expect("Missing CA certificate");
-    let client_cert = fs::read("certs/rust_agent.crt").expect("Missing Agent certificate");
-    let client_key = fs::read("certs/rust_agent.key").expect("Missing Agent private key");
+    let ca = fs::read("../certs/ca.crt").expect("Missing CA certificate");
+    let client_cert = fs::read("../certs/rust_agent.crt").expect("Missing Agent certificate");
+    let client_key = fs::read("../certs/rust_agent.key").expect("Missing Agent private key");
 
     // Configure strictly for mTLS
     let transport = Transport::Tls(TlsConfiguration::Simple {
