@@ -74,6 +74,230 @@ function classifyHealth(healthZone) {
   return 'good';
 }
 
+const LiveView = React.memo(({ telemetry, liveHealthClass }) => {
+  const chartData = {
+    labels: telemetry.spectrum_peaks.map((_, i) => `${i * 10}Hz`),
+    datasets: [
+      {
+        label: 'FFT Magnitude',
+        data: telemetry.spectrum_peaks,
+        backgroundColor: liveHealthClass === 'peak' || liveHealthClass === 'bad' ? 'rgba(239, 69, 101, 0.85)' : 'rgba(61, 169, 252, 0.85)',
+      },
+    ],
+  };
+
+  const chartOptions = {
+    responsive: true,
+    animation: false,
+    scales: {
+      y: { suggestedMax: 5.0, beginAtZero: true },
+      x: { display: false }
+    },
+  };
+
+  const currentHealthClassName = liveHealthClass === 'good' ? 'status-good' : 'status-bad';
+
+  return (
+    <>
+      <div className="stats-row">
+        <div className="stat-card">
+          <h3>Turbine ID</h3>
+          <p>{telemetry.turbine_id}</p>
+        </div>
+        <div className="stat-card">
+          <h3>Health State</h3>
+          <p className={currentHealthClassName}>{telemetry.health_zone}</p>
+        </div>
+        <div className="stat-card">
+          <h3>RMS Velocity</h3>
+          <p>{telemetry.rms_velocity.toFixed(2)} mm/s</p>
+        </div>
+      </div>
+
+      <div className="chart-card live-chart-card">
+        <Bar data={chartData} options={chartOptions} />
+      </div>
+    </>
+  );
+});
+
+const HistoryView = React.memo(({
+  historyRows,
+  historyLoading,
+  historyError,
+  historyHasMore,
+  historySummary,
+  historyStartTime,
+  historyStopTime,
+  historyTimePreset,
+  historyBatchSize,
+  historyTurbineFilter,
+  historyFilter,
+  historyChartData,
+  historyChartOptions,
+  onRefreshHistory,
+  onLoadMoreHistory,
+  onTimePresetChange,
+  onStartTimeChange,
+  onStopTimeChange,
+  setHistoryBatchSize,
+  setHistoryTurbineFilter,
+  setHistoryFilter,
+  historySentinelRef
+}) => {
+  return (
+    <>
+      <section className="history-controls">
+        <div className="control-item">
+          <label htmlFor="time-preset">Preset Tiempo</label>
+          <select
+            id="time-preset"
+            value={historyTimePreset}
+            onChange={onTimePresetChange}
+          >
+            <option value={TIME_PRESET_1H}>Ultima hora</option>
+            <option value={TIME_PRESET_6H}>Ultimas 6 horas</option>
+            <option value={TIME_PRESET_24H}>Ultimas 24 horas</option>
+            <option value={TIME_PRESET_7D}>Ultimos 7 dias</option>
+            <option value={TIME_PRESET_CUSTOM}>Custom</option>
+          </select>
+        </div>
+
+        <div className="control-item">
+          <label htmlFor="start-time">Desde</label>
+          <input
+            id="start-time"
+            type="datetime-local"
+            value={historyStartTime}
+            onChange={onStartTimeChange}
+          />
+        </div>
+
+        <div className="control-item">
+          <label htmlFor="stop-time">Hasta</label>
+          <input
+            id="stop-time"
+            type="datetime-local"
+            value={historyStopTime}
+            onChange={onStopTimeChange}
+          />
+        </div>
+
+        <div className="control-item">
+          <label htmlFor="batch-size">Batch Size</label>
+          <select
+            id="batch-size"
+            value={historyBatchSize}
+            onChange={(event) => setHistoryBatchSize(Number(event.target.value))}
+          >
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+            <option value={500}>500</option>
+          </select>
+        </div>
+
+        <div className="control-item">
+          <label htmlFor="turbine-filter">Turbina</label>
+          <input
+            id="turbine-filter"
+            type="text"
+            value={historyTurbineFilter}
+            onChange={(event) => setHistoryTurbineFilter(event.target.value)}
+            placeholder="Ej: T-01"
+          />
+        </div>
+
+        <div className="control-item">
+          <label htmlFor="health-filter">Filtro Salud</label>
+          <select
+            id="health-filter"
+            value={historyFilter}
+            onChange={(event) => setHistoryFilter(event.target.value)}
+          >
+            <option value={HEALTH_FILTER_ALL}>Todos</option>
+            <option value={HEALTH_FILTER_GOOD}>Solo Buenos (A/B)</option>
+            <option value={HEALTH_FILTER_BAD}>Solo Malos (C/D)</option>
+            <option value={HEALTH_FILTER_PEAK}>Solo Peak (Zone D)</option>
+          </select>
+        </div>
+
+        <div className="control-actions">
+          <button type="button" onClick={onRefreshHistory} disabled={historyLoading}>
+            {historyLoading ? 'Consultando...' : 'Refrescar'}
+          </button>
+          <button type="button" onClick={onLoadMoreHistory} disabled={historyLoading || !historyHasMore}>
+            Cargar mas
+          </button>
+        </div>
+      </section>
+
+      {historyError && <p className="history-error">{historyError}</p>}
+
+      <section className="history-summary">
+        <article className="summary-card summary-good">
+          <h4>Buenos</h4>
+          <strong>{historySummary.good}</strong>
+        </article>
+        <article className="summary-card summary-bad">
+          <h4>Malos</h4>
+          <strong>{historySummary.bad}</strong>
+        </article>
+        <article className="summary-card summary-peak">
+          <h4>Peak (Danger)</h4>
+          <strong>{historySummary.peak}</strong>
+        </article>
+      </section>
+
+      <div className="chart-card history-chart-card">
+        <Line data={historyChartData} options={historyChartOptions} />
+      </div>
+
+      <section className="history-table-wrap">
+        <table className="history-table">
+          <thead>
+            <tr>
+              <th>Hora</th>
+              <th>Turbina</th>
+              <th>RMS (mm/s)</th>
+              <th>Health</th>
+            </tr>
+          </thead>
+          <tbody>
+            {historyRows.map((row) => (
+              <tr key={row.key}>
+                <td>{new Date(row.time).toLocaleString()}</td>
+                <td>{row.turbineId}</td>
+                <td>{row.rmsVelocity.toFixed(2)}</td>
+                <td>
+                  <span
+                    className={`health-badge ${
+                      row.healthClass === 'good'
+                        ? 'health-good'
+                        : row.healthClass === 'peak'
+                          ? 'health-peak'
+                          : 'health-bad'
+                    }`}
+                  >
+                    {row.healthZone}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {historyRows.length === 0 && !historyLoading && !historyError && (
+          <p className="history-empty">No hay datos para los filtros seleccionados.</p>
+        )}
+        {historyHasMore && (
+          <div className="history-autoload" ref={historySentinelRef}>
+            {historyLoading ? 'Cargando siguiente batch...' : 'Auto-load activo al hacer scroll'}
+          </div>
+        )}
+      </section>
+    </>
+  );
+});
+
 export default function App() {
   const [viewMode, setViewMode] = useState(VIEW_LIVE);
 
@@ -285,7 +509,7 @@ export default function App() {
     setHistoryCursor(null);
     setHistoryHasMore(false);
     loadHistoryBatch({ reset: true });
-  }, [viewMode, historyBatchSize, historyFilter, historyStartTime, historyStopTime, historyTurbineFilter, loadHistoryBatch]);
+  }, [viewMode, historyBatchSize, historyFilter, historyStartTime, historyStopTime, loadHistoryBatch]);
 
   useEffect(() => {
     if (viewMode !== VIEW_HISTORY || !historySentinelRef.current) {
@@ -388,178 +612,34 @@ export default function App() {
       </header>
 
       {viewMode === VIEW_LIVE && (
-        <>
-          <div className="stats-row">
-            <div className="stat-card">
-              <h3>Turbine ID</h3>
-              <p>{telemetry.turbine_id}</p>
-            </div>
-            <div className="stat-card">
-              <h3>Health State</h3>
-              <p className={currentHealthClassName}>{telemetry.health_zone}</p>
-            </div>
-            <div className="stat-card">
-              <h3>RMS Velocity</h3>
-              <p>{telemetry.rms_velocity.toFixed(2)} mm/s</p>
-            </div>
-          </div>
-
-          <div className="chart-card live-chart-card">
-            <Bar data={chartData} options={chartOptions} />
-          </div>
-        </>
+        <LiveView telemetry={telemetry} liveHealthClass={liveHealthClass} />
       )}
 
       {viewMode === VIEW_HISTORY && (
-        <>
-          <section className="history-controls">
-            <div className="control-item">
-              <label htmlFor="time-preset">Preset Tiempo</label>
-              <select
-                id="time-preset"
-                value={historyTimePreset}
-                onChange={onTimePresetChange}
-              >
-                <option value={TIME_PRESET_1H}>Ultima hora</option>
-                <option value={TIME_PRESET_6H}>Ultimas 6 horas</option>
-                <option value={TIME_PRESET_24H}>Ultimas 24 horas</option>
-                <option value={TIME_PRESET_7D}>Ultimos 7 dias</option>
-                <option value={TIME_PRESET_CUSTOM}>Custom</option>
-              </select>
-            </div>
-
-            <div className="control-item">
-              <label htmlFor="start-time">Desde</label>
-              <input
-                id="start-time"
-                type="datetime-local"
-                value={historyStartTime}
-                onChange={onStartTimeChange}
-              />
-            </div>
-
-            <div className="control-item">
-              <label htmlFor="stop-time">Hasta</label>
-              <input
-                id="stop-time"
-                type="datetime-local"
-                value={historyStopTime}
-                onChange={onStopTimeChange}
-              />
-            </div>
-
-            <div className="control-item">
-              <label htmlFor="batch-size">Batch Size</label>
-              <select
-                id="batch-size"
-                value={historyBatchSize}
-                onChange={(event) => setHistoryBatchSize(Number(event.target.value))}
-              >
-                <option value={100}>100</option>
-                <option value={200}>200</option>
-                <option value={500}>500</option>
-              </select>
-            </div>
-
-            <div className="control-item">
-              <label htmlFor="turbine-filter">Turbina</label>
-              <input
-                id="turbine-filter"
-                type="text"
-                value={historyTurbineFilter}
-                onChange={(event) => setHistoryTurbineFilter(event.target.value)}
-                placeholder="Ej: T-01"
-              />
-            </div>
-
-            <div className="control-item">
-              <label htmlFor="health-filter">Filtro Salud</label>
-              <select
-                id="health-filter"
-                value={historyFilter}
-                onChange={(event) => setHistoryFilter(event.target.value)}
-              >
-                <option value={HEALTH_FILTER_ALL}>Todos</option>
-                <option value={HEALTH_FILTER_GOOD}>Solo Buenos (A/B)</option>
-                <option value={HEALTH_FILTER_BAD}>Solo Malos (C/D)</option>
-                <option value={HEALTH_FILTER_PEAK}>Solo Peak (Zone D)</option>
-              </select>
-            </div>
-
-            <div className="control-actions">
-              <button type="button" onClick={onRefreshHistory} disabled={historyLoading}>
-                {historyLoading ? 'Consultando...' : 'Refrescar'}
-              </button>
-              <button type="button" onClick={onLoadMoreHistory} disabled={historyLoading || !historyHasMore}>
-                Cargar mas
-              </button>
-            </div>
-          </section>
-
-          {historyError && <p className="history-error">{historyError}</p>}
-
-          <section className="history-summary">
-            <article className="summary-card summary-good">
-              <h4>Buenos</h4>
-              <strong>{historySummary.good}</strong>
-            </article>
-            <article className="summary-card summary-bad">
-              <h4>Malos</h4>
-              <strong>{historySummary.bad}</strong>
-            </article>
-            <article className="summary-card summary-peak">
-              <h4>Peak (Danger)</h4>
-              <strong>{historySummary.peak}</strong>
-            </article>
-          </section>
-
-          <div className="chart-card history-chart-card">
-            <Line data={historyChartData} options={historyChartOptions} />
-          </div>
-
-          <section className="history-table-wrap">
-            <table className="history-table">
-              <thead>
-                <tr>
-                  <th>Hora</th>
-                  <th>Turbina</th>
-                  <th>RMS (mm/s)</th>
-                  <th>Health</th>
-                </tr>
-              </thead>
-              <tbody>
-                {historyRows.map((row) => (
-                  <tr key={row.key}>
-                    <td>{new Date(row.time).toLocaleString()}</td>
-                    <td>{row.turbineId}</td>
-                    <td>{row.rmsVelocity.toFixed(2)}</td>
-                    <td>
-                      <span
-                        className={`health-badge ${
-                          row.healthClass === 'good'
-                            ? 'health-good'
-                            : row.healthClass === 'peak'
-                              ? 'health-peak'
-                              : 'health-bad'
-                        }`}
-                      >
-                        {row.healthZone}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {historyRows.length === 0 && !historyLoading && !historyError && (
-              <p className="history-empty">No hay datos para los filtros seleccionados.</p>
-            )}
-            {historyHasMore && (
-              <div className="history-autoload" ref={historySentinelRef}>
-                {historyLoading ? 'Cargando siguiente batch...' : 'Auto-load activo al hacer scroll'}
-              </div>
-            )}
-          </section>
-        </>
+        <HistoryView
+          historyRows={historyRows}
+          historyLoading={historyLoading}
+          historyError={historyError}
+          historyHasMore={historyHasMore}
+          historySummary={historySummary}
+          historyStartTime={historyStartTime}
+          historyStopTime={historyStopTime}
+          historyTimePreset={historyTimePreset}
+          historyBatchSize={historyBatchSize}
+          historyTurbineFilter={historyTurbineFilter}
+          historyFilter={historyFilter}
+          historyChartData={historyChartData}
+          historyChartOptions={historyChartOptions}
+          onRefreshHistory={onRefreshHistory}
+          onLoadMoreHistory={onLoadMoreHistory}
+          onTimePresetChange={onTimePresetChange}
+          onStartTimeChange={onStartTimeChange}
+          onStopTimeChange={onStopTimeChange}
+          setHistoryBatchSize={setHistoryBatchSize}
+          setHistoryTurbineFilter={setHistoryTurbineFilter}
+          setHistoryFilter={setHistoryFilter}
+          historySentinelRef={historySentinelRef}
+        />
       )}
     </div>
   );
