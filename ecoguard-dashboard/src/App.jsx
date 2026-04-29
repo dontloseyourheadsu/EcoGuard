@@ -74,7 +74,51 @@ function classifyHealth(healthZone) {
   return 'good';
 }
 
-const LiveView = React.memo(({ telemetry, liveHealthClass }) => {
+/**
+ * LiveViewContainer manages its own MQTT connection and state.
+ * This ensures "Live" updates never trigger re-renders in the "History" logic.
+ */
+const LiveViewContainer = () => {
+  const [telemetry, setTelemetry] = useState({
+    turbine_id: 'Connecting...',
+    health_zone: 'Unknown',
+    rms_velocity: 0,
+    spectrum_peaks: new Array(60).fill(0),
+  });
+
+  useEffect(() => {
+    console.log('📡 [LiveView] Initializing MQTT Connection...');
+    const client = mqtt.connect('ws://localhost:8083', {
+      clientId: 'react-live-' + Math.random().toString(16).substring(2, 8),
+      clean: true,
+      reconnectPeriod: 1000,
+    });
+
+    client.on('connect', () => {
+      console.log('✅ [LiveView] Connected to Broker');
+      client.subscribe('ecoguard/turbine/+/data');
+    });
+
+    client.on('message', (topic, message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        setTelemetry(data);
+      } catch (error) {
+        console.error('Invalid telemetry JSON', error);
+      }
+    });
+
+    return () => {
+      console.log('🔌 [LiveView] Closing MQTT Connection');
+      client.end();
+    };
+  }, []);
+
+  const liveHealthClass = useMemo(
+    () => classifyHealth(telemetry.health_zone),
+    [telemetry.health_zone],
+  );
+
   const chartData = {
     labels: telemetry.spectrum_peaks.map((_, i) => `${i * 10}Hz`),
     datasets: [
@@ -88,10 +132,11 @@ const LiveView = React.memo(({ telemetry, liveHealthClass }) => {
 
   const chartOptions = {
     responsive: true,
+    maintainAspectRatio: false,
     animation: false,
     scales: {
       y: { suggestedMax: 5.0, beginAtZero: true },
-      x: { display: false }
+      x: { display: true, ticks: { maxTicksLimit: 10 } }
     },
   };
 
@@ -114,12 +159,12 @@ const LiveView = React.memo(({ telemetry, liveHealthClass }) => {
         </div>
       </div>
 
-      <div className="chart-card live-chart-card">
+      <div className="chart-card live-chart-card" style={{ height: '400px' }}>
         <Bar data={chartData} options={chartOptions} />
       </div>
     </>
   );
-});
+};
 
 const HistoryView = React.memo(({
   historyRows,
@@ -301,13 +346,6 @@ const HistoryView = React.memo(({
 export default function App() {
   const [viewMode, setViewMode] = useState(VIEW_LIVE);
 
-  const [telemetry, setTelemetry] = useState({
-    turbine_id: 'Loading...',
-    health_zone: 'Unknown',
-    rms_velocity: 0,
-    spectrum_peaks: new Array(50).fill(0), // Initial empty FFT array
-  });
-
   const [historyRows, setHistoryRows] = useState([]);
   const [historyCursor, setHistoryCursor] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -321,13 +359,16 @@ export default function App() {
   const [historyBatchSize, setHistoryBatchSize] = useState(200);
   const [historyFilter, setHistoryFilter] = useState(HEALTH_FILTER_ALL);
   const [historyTurbineFilter, setHistoryTurbineFilter] = useState('');
+  const [debouncedTurbineFilter, setDebouncedTurbineFilter] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedTurbineFilter(historyTurbineFilter);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [historyTurbineFilter]);
 
   const historySentinelRef = useRef(null);
-
-  const liveHealthClass = useMemo(
-    () => classifyHealth(telemetry.health_zone),
-    [telemetry.health_zone],
-  );
 
   const historySummary = useMemo(() => {
     return historyRows.reduce(
@@ -371,25 +412,27 @@ export default function App() {
     };
   }, [recentRows]);
 
-  const historyChartOptions = {
-    responsive: true,
-    animation: false,
-    scales: {
-      y: { beginAtZero: true, suggestedMax: 8 },
-      x: { ticks: { maxTicksLimit: 8 } },
-    },
-    plugins: {
-      tooltip: {
-        callbacks: {
-          label(context) {
-            const row = recentRows[context.dataIndex];
-            const zone = row ? row.healthZone : 'Unknown';
-            return `RMS: ${context.parsed.y.toFixed(2)} mm/s | ${zone}`;
+  const historyChartOptions = useMemo(() => {
+    return {
+      responsive: true,
+      animation: false,
+      scales: {
+        y: { beginAtZero: true, suggestedMax: 8 },
+        x: { ticks: { maxTicksLimit: 8 } },
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label(context) {
+              const row = recentRows[context.dataIndex];
+              const zone = row ? row.healthZone : 'Unknown';
+              return `RMS: ${context.parsed.y.toFixed(2)} mm/s | ${zone}`;
+            },
           },
         },
       },
-    },
-  };
+    };
+  }, [recentRows]);
 
   const loadHistoryBatch = useCallback(
     async ({ reset = false } = {}) => {
@@ -405,20 +448,9 @@ export default function App() {
       const startIso = new Date(historyStartTime).toISOString();
       const stopIso = new Date(historyStopTime).toISOString();
 
-      if (Number.isNaN(new Date(startIso).getTime()) || Number.isNaN(new Date(stopIso).getTime())) {
-        setHistoryError('El rango de tiempo no es valido.');
-        return;
-      }
-
-      if (new Date(startIso).getTime() >= new Date(stopIso).getTime()) {
-        setHistoryError('El inicio debe ser anterior al fin.');
-        return;
-      }
-
-      setHistoryLoading(true);
-      setHistoryError('');
-
       try {
+        setHistoryLoading(true);
+        setHistoryError('');
         const afterTime = reset ? null : historyCursor;
         const searchParams = new URLSearchParams({
           limit: String(historyBatchSize),
@@ -431,8 +463,8 @@ export default function App() {
           searchParams.set('cursor', afterTime);
         }
 
-        if (historyTurbineFilter.trim()) {
-          searchParams.set('turbineId', historyTurbineFilter.trim());
+        if (debouncedTurbineFilter.trim()) {
+          searchParams.set('turbineId', debouncedTurbineFilter.trim());
         }
 
         const response = await fetch(`/api/history?${searchParams.toString()}`, {
@@ -473,32 +505,8 @@ export default function App() {
         setHistoryLoading(false);
       }
     },
-    [historyBatchSize, historyCursor, historyFilter, historyLoading, historyStartTime, historyStopTime, historyTurbineFilter],
+    [historyBatchSize, historyCursor, historyFilter, historyLoading, historyStartTime, historyStopTime, debouncedTurbineFilter],
   );
-
-  useEffect(() => {
-    // Connect to local Mosquitto via WebSockets.
-    const client = mqtt.connect('ws://localhost:8083', {
-      clientId: 'react-dashboard',
-      username: 'react-dashboard',
-    });
-
-    client.on('connect', () => {
-      console.log('✅ Connected to EcoGuard WSS');
-      client.subscribe('ecoguard/turbine/+/data');
-    });
-
-    client.on('message', (topic, message) => {
-      try {
-        const data = JSON.parse(message.toString());
-        setTelemetry(data);
-      } catch (error) {
-        console.error('Invalid telemetry JSON', error);
-      }
-    });
-
-    return () => client.end();
-  }, []);
 
   useEffect(() => {
     if (viewMode !== VIEW_HISTORY) {
@@ -509,7 +517,7 @@ export default function App() {
     setHistoryCursor(null);
     setHistoryHasMore(false);
     loadHistoryBatch({ reset: true });
-  }, [viewMode, historyBatchSize, historyFilter, historyStartTime, historyStopTime, loadHistoryBatch]);
+  }, [viewMode, historyBatchSize, historyFilter, historyStartTime, historyStopTime, debouncedTurbineFilter]); 
 
   useEffect(() => {
     if (viewMode !== VIEW_HISTORY || !historySentinelRef.current) {
@@ -531,44 +539,18 @@ export default function App() {
     return () => observer.disconnect();
   }, [historyHasMore, historyLoading, loadHistoryBatch, viewMode]);
 
-  // ---------------------------------------------------------
-  // Chart.js Configuration (Optimized for 30fps)
-  // ---------------------------------------------------------
-  const chartData = {
-    // Create generic X-axis labels for frequency bins
-    labels: telemetry.spectrum_peaks.map((_, i) => `${i * 10}Hz`), 
-    datasets: [
-      {
-        label: 'FFT Magnitude',
-        data: telemetry.spectrum_peaks,
-        backgroundColor: liveHealthClass === 'peak' || liveHealthClass === 'bad' ? 'rgba(239, 69, 101, 0.85)' : 'rgba(61, 169, 252, 0.85)',
-      },
-    ],
-  };
-
-  const chartOptions = {
-    responsive: true,
-    animation: false, // CRITICAL: Must be false to achieve 30fps rendering
-    scales: {
-      y: { suggestedMax: 5.0, beginAtZero: true },
-      x: { display: false } // Hide X labels for cleaner high-speed rendering
-    },
-  };
-
-  const currentHealthClassName = liveHealthClass === 'good' ? 'status-good' : 'status-bad';
-
-  const onRefreshHistory = () => {
+  const onRefreshHistory = useCallback(() => {
     setHistoryRows([]);
     setHistoryCursor(null);
     setHistoryHasMore(false);
     loadHistoryBatch({ reset: true });
-  };
+  }, [loadHistoryBatch]);
 
-  const onLoadMoreHistory = () => {
+  const onLoadMoreHistory = useCallback(() => {
     loadHistoryBatch({ reset: false });
-  };
+  }, [loadHistoryBatch]);
 
-  const onTimePresetChange = (event) => {
+  const onTimePresetChange = useCallback((event) => {
     const preset = event.target.value;
     setHistoryTimePreset(preset);
     if (preset === TIME_PRESET_CUSTOM) {
@@ -577,17 +559,17 @@ export default function App() {
     const nextRange = buildPresetRange(preset);
     setHistoryStartTime(nextRange.start);
     setHistoryStopTime(nextRange.stop);
-  };
+  }, []);
 
-  const onStartTimeChange = (event) => {
+  const onStartTimeChange = useCallback((event) => {
     setHistoryTimePreset(TIME_PRESET_CUSTOM);
     setHistoryStartTime(event.target.value);
-  };
+  }, []);
 
-  const onStopTimeChange = (event) => {
+  const onStopTimeChange = useCallback((event) => {
     setHistoryTimePreset(TIME_PRESET_CUSTOM);
     setHistoryStopTime(event.target.value);
-  };
+  }, []);
 
   return (
     <div className="app-shell">
@@ -611,36 +593,38 @@ export default function App() {
         </div>
       </header>
 
-      {viewMode === VIEW_LIVE && (
-        <LiveView telemetry={telemetry} liveHealthClass={liveHealthClass} />
-      )}
+      <main className="view-container">
+        {viewMode === VIEW_LIVE && (
+          <LiveViewContainer />
+        )}
 
-      {viewMode === VIEW_HISTORY && (
-        <HistoryView
-          historyRows={historyRows}
-          historyLoading={historyLoading}
-          historyError={historyError}
-          historyHasMore={historyHasMore}
-          historySummary={historySummary}
-          historyStartTime={historyStartTime}
-          historyStopTime={historyStopTime}
-          historyTimePreset={historyTimePreset}
-          historyBatchSize={historyBatchSize}
-          historyTurbineFilter={historyTurbineFilter}
-          historyFilter={historyFilter}
-          historyChartData={historyChartData}
-          historyChartOptions={historyChartOptions}
-          onRefreshHistory={onRefreshHistory}
-          onLoadMoreHistory={onLoadMoreHistory}
-          onTimePresetChange={onTimePresetChange}
-          onStartTimeChange={onStartTimeChange}
-          onStopTimeChange={onStopTimeChange}
-          setHistoryBatchSize={setHistoryBatchSize}
-          setHistoryTurbineFilter={setHistoryTurbineFilter}
-          setHistoryFilter={setHistoryFilter}
-          historySentinelRef={historySentinelRef}
-        />
-      )}
+        {viewMode === VIEW_HISTORY && (
+          <HistoryView
+            historyRows={historyRows}
+            historyLoading={historyLoading}
+            historyError={historyError}
+            historyHasMore={historyHasMore}
+            historySummary={historySummary}
+            historyStartTime={historyStartTime}
+            historyStopTime={historyStopTime}
+            historyTimePreset={historyTimePreset}
+            historyBatchSize={historyBatchSize}
+            historyTurbineFilter={historyTurbineFilter}
+            historyFilter={historyFilter}
+            historyChartData={historyChartData}
+            historyChartOptions={historyChartOptions}
+            onRefreshHistory={onRefreshHistory}
+            onLoadMoreHistory={onLoadMoreHistory}
+            onTimePresetChange={onTimePresetChange}
+            onStartTimeChange={onStartTimeChange}
+            onStopTimeChange={onStopTimeChange}
+            setHistoryBatchSize={setHistoryBatchSize}
+            setHistoryTurbineFilter={setHistoryTurbineFilter}
+            setHistoryFilter={setHistoryFilter}
+            historySentinelRef={historySentinelRef}
+          />
+        )}
+      </main>
     </div>
   );
 }
