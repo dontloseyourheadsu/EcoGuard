@@ -13,24 +13,25 @@ pub struct TelemetryPayload {
     pub timestamp: u64,
 }
 
-/// Establishes an asynchronous, mTLS-secured connection to the Mosquitto broker.
+/// Establishes an asynchronous MQTT connection. Supports plain TCP (1883) or mTLS (8883).
 pub async fn setup_mqtt_client(client_id: &str, broker_host: &str, port: u16) -> AsyncClient {
     let mut mqttoptions = MqttOptions::new(client_id, broker_host, port);
     mqttoptions.set_keep_alive(Duration::from_secs(5));
 
-    // Load the mTLS certificates generated earlier
-    let ca = fs::read("../certs/ca.crt").expect("Missing CA certificate");
-    let client_cert = fs::read("../certs/rust_agent.crt").expect("Missing Agent certificate");
-    let client_key = fs::read("../certs/rust_agent.key").expect("Missing Agent private key");
+    if port == 8883 {
+        // Load the mTLS certificates generated earlier
+        let ca = fs::read("../certs/ca.crt").expect("Missing CA certificate");
+        let client_cert = fs::read("../certs/rust_agent.crt").expect("Missing Agent certificate");
+        let client_key = fs::read("../certs/rust_agent.key").expect("Missing Agent private key");
 
-    // Configure strictly for mTLS
-    let transport = Transport::Tls(TlsConfiguration::Simple {
-        ca: ca.into(),
-        alpn: None,
-        client_auth: Some((client_cert.into(), client_key.into())),
-    });
-
-    mqttoptions.set_transport(transport);
+        // Configure strictly for mTLS
+        let transport = Transport::Tls(TlsConfiguration::Simple {
+            ca: ca.into(),
+            alpn: None,
+            client_auth: Some((client_cert.into(), client_key.into())),
+        });
+        mqttoptions.set_transport(transport);
+    }
 
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
 
