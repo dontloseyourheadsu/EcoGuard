@@ -2,56 +2,71 @@ use rand::thread_rng;
 use rand_distr::{Distribution, Normal};
 use std::f64::consts::PI;
 
-/// Represents the physical state and signal generation of a turbine.
+/// Defines specific mechanical fault intensities.
+#[derive(Clone, Copy)]
+pub struct MechanicalState {
+    pub imbalance: f64,      // 1x Harmonic (Mass distribution)
+    pub misalignment: f64,   // 2x Harmonic (Coupling/Alignment)
+    pub looseness: f64,      // 3x Harmonic (Foundation/Mounts)
+    pub bearing_wear: f64,   // High-frequency acoustic emission (>2kHz)
+    pub noise_floor: f64,    // Background friction
+}
+
+impl MechanicalState {
+    pub fn healthy() -> Self {
+        Self {
+            imbalance: 1.0,
+            misalignment: 0.3,
+            looseness: 0.1,
+            bearing_wear: 0.2,
+            noise_floor: 0.4,
+        }
+    }
+}
+
 pub struct VibrationSensor {
-    pub sample_rate: f64,       // In Hz (e.g., 10,000 Hz for high-fidelity simulation)
-    pub fundamental_freq: f64,  // In Hz (e.g., 25 Hz representing 1500 RPM)
-    pub noise_std_dev: f64,     // Standard deviation for Gaussian friction noise
-    time: f64,                  // Internal continuous time tracker
+    pub sample_rate: f64,
+    pub fundamental_freq: f64, // f0 (Rotation frequency)
+    time: f64,
 }
 
 impl VibrationSensor {
-    /// Initializes a new emulated vibration sensor.
-    pub fn new(sample_rate: f64, fundamental_freq: f64, noise_std_dev: f64) -> Self {
+    pub fn new(sample_rate: f64, fundamental_freq: f64) -> Self {
         Self {
             sample_rate,
             fundamental_freq,
-            noise_std_dev,
             time: 0.0,
         }
     }
 
-    /// Generates a chunk of time-domain vibration data.
-    /// Returns a vector of f64 amplitudes representing the physical waveform.
-    pub fn generate_samples(&mut self, num_samples: usize) -> Vec<f64> {
+    /// Generates samples by synthesizing the mechanical signature of the provided state.
+    pub fn generate_samples(&mut self, num_samples: usize, state: MechanicalState) -> Vec<f64> {
         let mut rng = thread_rng();
-        // Initialize Gaussian noise distribution to simulate friction
-        let normal_dist = Normal::new(0.0, self.noise_std_dev).expect("Invalid noise parameters");
+        let normal_dist = Normal::new(0.0, state.noise_floor).expect("Invalid noise");
         
         let mut samples = Vec::with_capacity(num_samples);
         let dt = 1.0 / self.sample_rate;
 
         for _ in 0..num_samples {
-            // 1. Fundamental Frequency (1x RPM - The main rotation of the shaft)
-            let base_wave = (2.0 * PI * self.fundamental_freq * self.time).sin() * 2.5;
+            // 1x: Primary shaft rotation (Imbalance signature)
+            let f1 = (2.0 * PI * self.fundamental_freq * self.time).sin() * (2.0 * state.imbalance);
             
-            // 2. 2x Harmonic (Simulates angular misalignment in the coupling)
-            let harmonic_2x = (2.0 * PI * (self.fundamental_freq * 2.0) * self.time).sin() * 0.8;
+            // 2x: Angular misalignment signature
+            let f2 = (2.0 * PI * (self.fundamental_freq * 2.0) * self.time).sin() * (1.2 * state.misalignment);
             
-            // 3. 3x Harmonic (Simulates mechanical looseness in the foundation)
-            let harmonic_3x = (2.0 * PI * (self.fundamental_freq * 3.0) * self.time).sin() * 0.3;
+            // 3x: Mechanical looseness signature (impact-like harmonics)
+            let f3 = (2.0 * PI * (self.fundamental_freq * 3.0) * self.time).sin() * (0.8 * state.looseness);
 
-            // 4. High-Frequency Component (Simulates early bearing wear)
-            let bearing_noise = (2.0 * PI * 2500.0 * self.time).sin() * 0.4;
+            // Bearing wear: High-frequency resonance (simulating ball-pass frequency)
+            // We use a higher carrier frequency (e.g., 2500Hz) modulated slightly
+            let bearing = (2.0 * PI * 2500.0 * self.time).sin() * (0.5 * state.bearing_wear);
 
-            // 5. Gaussian Noise (Simulates random environmental and friction noise)
-            let friction_noise = normal_dist.sample(&mut rng);
+            // Stochastic noise floor
+            let noise = normal_dist.sample(&mut rng);
 
-            // Composite signal construction
-            let amplitude = base_wave + harmonic_2x + harmonic_3x + bearing_noise + friction_noise;
+            let amplitude = f1 + f2 + f3 + bearing + noise;
             samples.push(amplitude);
 
-            // Advance the internal clock
             self.time += dt;
         }
 
