@@ -11,11 +11,10 @@ export default function App() {
   });
 
   useEffect(() => {
-    // NOTE: In many RN environments mqtt.js needs extra shims.
-    // This code works in an Expo web session or a properly configured native build.
-    const client = mqtt.connect("wss://localhost:8083", {
-      clientId: "react-native-dashboard",
-      rejectUnauthorized: false,
+    // Use PC's IP address on the hotspot network
+    const brokerIp = "192.168.160.222";
+    const client = mqtt.connect(`ws://${brokerIp}:8083`, {
+      clientId: "react-native-dashboard-" + Math.random().toString(16).substring(2, 8),
     });
 
     client.on("connect", () => {
@@ -27,15 +26,17 @@ export default function App() {
       try {
         const data = JSON.parse(message.toString());
         setTelemetry(data);
-      } catch (e) {
-        console.warn("Failed parse message", e);
+      } catch (err) {
+        console.warn("Failed parse message", err);
       }
     });
 
     return () => {
       try {
         client.end();
-      } catch (e) {}
+      } catch (err) {
+        console.error("Failed to disconnect MQTT", err);
+      }
     };
   }, []);
 
@@ -53,6 +54,8 @@ export default function App() {
             styles.value,
             telemetry.health_zone.includes("Danger")
               ? styles.danger
+              : telemetry.health_zone.includes("Unsatisfactory")
+              ? styles.warning
               : styles.ok,
           ]}
         >
@@ -97,6 +100,7 @@ const styles = StyleSheet.create({
   label: { color: "#aaa", fontSize: 12 },
   value: { color: "white", fontSize: 18, fontWeight: "600" },
   danger: { color: "#ff6b6b" },
+  warning: { color: "#f97316" },
   ok: { color: "#7efc6e" },
   peak: { color: "#ccc", paddingVertical: 2 },
 });
