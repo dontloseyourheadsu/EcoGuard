@@ -82,12 +82,73 @@
   color: #2cb67d;
 }
 
+.status-warning {
+  color: #f97316;
+}
+
 .status-bad {
   color: #ef4565;
 }
 
 .chart-card {
   padding: 1rem;
+}
+
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.chart-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #e2e8f0;
+}
+
+/* Tooltip Styles */
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: #3da9fc;
+  color: #0f172a;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: help;
+  position: relative;
+}
+
+.tooltip-text {
+  visibility: hidden;
+  width: 280px;
+  background-color: #1e293b;
+  color: #f1f5f9;
+  text-align: left;
+  border-radius: 8px;
+  padding: 12px;
+  position: absolute;
+  z-index: 100;
+  top: 0;
+  right: 30px; /* Position to the left of the icon */
+  opacity: 0;
+  transition: opacity 0.3s;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  border: 1px solid #334155;
+  font-weight: normal;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  white-space: pre-line;
+  pointer-events: none; /* Prevent tooltip from blocking mouse events */
+}
+
+.info-icon:hover .tooltip-text {
+  visibility: visible;
+  opacity: 1;
 }
 
 .live-chart-card {
@@ -187,11 +248,11 @@
   border-left: 4px solid #2cb67d;
 }
 
-.summary-bad {
+.summary-warning {
   border-left: 4px solid #f97316;
 }
 
-.summary-peak {
+.summary-bad, .summary-peak {
   border-left: 4px solid #ef4565;
 }
 
@@ -231,12 +292,12 @@
   color: #86efac;
 }
 
-.health-bad {
+.health-warning {
   background: rgba(249, 115, 22, 0.2);
   color: #fdba74;
 }
 
-.health-peak {
+.health-bad, .health-peak {
   background: rgba(239, 69, 101, 0.22);
   color: #fecdd3;
 }

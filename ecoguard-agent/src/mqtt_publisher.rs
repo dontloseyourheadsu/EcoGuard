@@ -17,6 +17,8 @@ pub struct TelemetryPayload {
 pub async fn setup_mqtt_client(client_id: &str, broker_host: &str, port: u16) -> AsyncClient {
     let mut mqttoptions = MqttOptions::new(client_id, broker_host, port);
     mqttoptions.set_keep_alive(Duration::from_secs(5));
+    // Increase packet size to accommodate high-resolution spectral data
+    mqttoptions.set_max_packet_size(32 * 1024, 32 * 1024);
 
     if port == 8883 {
         // Load the mTLS certificates generated earlier

@@ -85,6 +85,23 @@ Machines are classified into four zones based on RMS velocity (mm/s):
 - **Zone C:** Unsatisfactory (Limited operation/Planned maintenance).
 - **Zone D:** Danger (High risk of damage/Immediate shutdown).
 
+## Interpreting Dashboard Visualizations
+
+The dashboard provides two distinct perspectives on machine health, allowing for both immediate diagnostics and long-term trend analysis.
+
+### 1. Live View: The FFT Spectrum (Diagnostic Signature)
+This graph represents the "mechanical fingerprint" of the turbine. It decomposes complex vibration into individual frequency components.
+- **The Primary Peak (1x Harmonic):** Located at **25Hz**, this represents the fundamental rotation of the shaft. A significant increase here typically indicates **Mass Imbalance**.
+- **The Secondary Peak (2x Harmonic):** Located at **50Hz**, an increase in this bar suggests **Angular Misalignment**.
+- **The Tertiary Peak (3x Harmonic):** Located at **75Hz**, this signature points toward **Mechanical Looseness** or foundation issues.
+- **High-Frequency Region (>2000Hz):** Activity in the far right of the spectrum indicates **Bearing Wear** or ball-pass frequency failures.
+
+### 2. History View: Vibration Trend (Forensic Analysis)
+This graph plots the **RMS Velocity** over time, providing a bird's-eye view of machine stability.
+- **The Baseline:** Normal operation appears as a stable line around **1.5 mm/s** (Zone A/B).
+- **Transient Peaks:** Sudden spikes represent **Fault Injections** or momentary anomalies.
+- **Zone Thresholds:** The background or data points are color-coded (Green, Orange, Red) to immediately identify when the machine entered an Unsatisfactory or Dangerous state according to **ISO 10816** standards.
+
 ### Security Model
 - **Mutual TLS (mTLS):** Required for Agent, Telegraf, and Dashboard connections.
 - **PKI:** Self-signed CA with per-component X.509 certificates.

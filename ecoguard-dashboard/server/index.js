@@ -25,7 +25,7 @@ function classifyHealth(healthZone) {
     return "peak";
   }
   if (healthZone === "Zone C (Unsatisfactory)") {
-    return "bad";
+    return "warning";
   }
   return "good";
 }
@@ -62,13 +62,12 @@ function parseCsvLine(line) {
 
 function parseInfluxAnnotatedCsv(rawCsv) {
   const lines = rawCsv.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  const contentLines = lines.filter((line) => !line.startsWith("#"));
+  
+  // Find the first non-comment line to establish headers
+  const firstHeaderIndex = lines.findIndex(line => !line.startsWith("#"));
+  if (firstHeaderIndex < 0) return [];
 
-  if (contentLines.length <= 1) {
-    return [];
-  }
-
-  const headers = parseCsvLine(contentLines[0]);
+  const headers = parseCsvLine(lines[firstHeaderIndex]);
   const timeIndex = headers.indexOf("_time");
   const valueIndex = headers.indexOf("_value");
   const zoneIndex = headers.indexOf("health_zone");
@@ -78,17 +77,27 @@ function parseInfluxAnnotatedCsv(rawCsv) {
     return [];
   }
 
-  return contentLines.slice(1).map((line) => {
+  const results = [];
+  // Skip the first header row and process everything else
+  for (let i = firstHeaderIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith("#")) continue; // Skip annotation rows for new tables
+    
     const columns = parseCsvLine(line);
+    // Skip rows that match the header signature (which appear at the start of new tables)
+    if (columns[timeIndex] === "_time") continue;
+
     const healthZone = columns[zoneIndex];
-    return {
+    results.push({
       time: columns[timeIndex],
       turbineId: columns[turbineIndex],
       rmsVelocity: Number(columns[valueIndex] || 0),
       healthZone,
       healthClass: classifyHealth(healthZone),
-    };
-  });
+    });
+  }
+
+  return results;
 }
 
 function buildHistoryFluxQuery({

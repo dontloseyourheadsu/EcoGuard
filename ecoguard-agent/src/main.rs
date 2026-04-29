@@ -58,7 +58,7 @@ async fn main() {
             turbine_id: turbine_id.to_string(),
             rms_velocity: rms,
             health_zone: health_str.to_string(),
-            spectrum_peaks: spectrum.into_iter().take(60).collect(), 
+            spectrum_peaks: spectrum.into_iter().take(512).collect(), 
             timestamp: current_timestamp(),
         };
 
