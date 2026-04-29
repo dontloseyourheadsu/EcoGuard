@@ -21,6 +21,7 @@ const VIEW_HISTORY = 'history';
 
 const HEALTH_FILTER_ALL = 'all';
 const HEALTH_FILTER_GOOD = 'good';
+const HEALTH_FILTER_WARNING = 'warning';
 const HEALTH_FILTER_BAD = 'bad';
 const HEALTH_FILTER_PEAK = 'peak';
 
@@ -31,7 +32,7 @@ const TIME_PRESET_7D = '7d';
 const TIME_PRESET_CUSTOM = 'custom';
 
 const GOOD_ZONES = ['Zone A (Good)', 'Zone B (Acceptable)'];
-const BAD_ZONES = ['Zone C (Unsatisfactory)'];
+const WARNING_ZONES = ['Zone C (Unsatisfactory)'];
 const PEAK_ZONES = ['Zone D (Danger)'];
 
 function toLocalDatetimeValue(date) {
@@ -68,8 +69,8 @@ function classifyHealth(healthZone) {
   if (PEAK_ZONES.includes(healthZone)) {
     return 'peak';
   }
-  if (BAD_ZONES.includes(healthZone)) {
-    return 'bad';
+  if (WARNING_ZONES.includes(healthZone)) {
+    return 'warning';
   }
   return 'good';
 }
@@ -79,16 +80,14 @@ function classifyHealth(healthZone) {
  * This ensures "Live" updates never trigger re-renders in the "History" logic.
  */
 const LiveViewContainer = () => {
-  const [telemetry, setTelemetry] = useState({
-    turbine_id: 'Connecting...',
-    health_zone: 'Unknown',
-    rms_velocity: 0,
-    spectrum_peaks: new Array(60).fill(0),
-  });
+  const [telemetryMap, setTelemetryMap] = useState({});
+  const [selectedTurbineId, setSelectedTurbineId] = useState(null);
 
   useEffect(() => {
-    console.log('📡 [LiveView] Initializing MQTT Connection...');
-    const client = mqtt.connect('ws://localhost:8083', {
+    const brokerHost = window.location.hostname || 'localhost';
+    const brokerUrl = `ws://${brokerHost}:8083`;
+    console.log(`📡 [LiveView] Initializing MQTT Connection to ${brokerUrl}...`);
+    const client = mqtt.connect(brokerUrl, {
       clientId: 'react-live-' + Math.random().toString(16).substring(2, 8),
       clean: true,
       reconnectPeriod: 1000,
@@ -96,13 +95,21 @@ const LiveViewContainer = () => {
 
     client.on('connect', () => {
       console.log('✅ [LiveView] Connected to Broker');
-      client.subscribe('ecoguard/turbine/+/data');
+      client.subscribe('ecoguard/turbine/+/data', (err) => {
+        if (err) console.error('Subscribe error:', err);
+        else console.log('Subscribed to topics');
+      });
     });
 
     client.on('message', (topic, message) => {
+      console.log(`📩 [LiveView] Message received on ${topic}`);
       try {
         const data = JSON.parse(message.toString());
-        setTelemetry(data);
+        setTelemetryMap((prev) => {
+          const next = { ...prev, [data.turbine_id]: data };
+          return next;
+        });
+        setSelectedTurbineId((current) => current || data.turbine_id);
       } catch (error) {
         console.error('Invalid telemetry JSON', error);
       }
@@ -114,36 +121,95 @@ const LiveViewContainer = () => {
     };
   }, []);
 
+  const turbineIds = useMemo(() => Object.keys(telemetryMap).sort(), [telemetryMap]);
+  const telemetry = telemetryMap[selectedTurbineId] || {
+    turbine_id: 'Waiting for data...',
+    health_zone: 'Unknown',
+    rms_velocity: 0,
+    spectrum_peaks: [],
+  };
+
   const liveHealthClass = useMemo(
     () => classifyHealth(telemetry.health_zone),
     [telemetry.health_zone],
   );
 
-  const chartData = {
-    labels: telemetry.spectrum_peaks.map((_, i) => `${i * 10}Hz`),
-    datasets: [
-      {
-        label: 'FFT Magnitude',
-        data: telemetry.spectrum_peaks,
-        backgroundColor: liveHealthClass === 'peak' || liveHealthClass === 'bad' ? 'rgba(239, 69, 101, 0.85)' : 'rgba(61, 169, 252, 0.85)',
-      },
-    ],
-  };
+  const chartData = useMemo(() => {
+    // Frequency resolution is ~4.88Hz per bin (10000Hz / 2048 samples)
+    const freqRes = 10000 / 2048;
+    let barColor = 'rgba(61, 169, 252, 0.85)'; // Default blue
+    if (liveHealthClass === 'peak') barColor = 'rgba(239, 69, 101, 0.85)'; // Red
+    else if (liveHealthClass === 'warning') barColor = 'rgba(249, 115, 22, 0.85)'; // Orange
+
+    return {
+      labels: telemetry.spectrum_peaks.map((_, i) => `${(i * freqRes).toFixed(0)}Hz`),
+      datasets: [
+        {
+          label: 'FFT Magnitude',
+          data: telemetry.spectrum_peaks,
+          backgroundColor: barColor,
+        },
+      ],
+    };
+  }, [telemetry.spectrum_peaks, liveHealthClass]);
 
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
     animation: false,
     scales: {
-      y: { suggestedMax: 5.0, beginAtZero: true },
-      x: { display: true, ticks: { maxTicksLimit: 10 } }
+      y: { 
+        suggestedMax: 5.0, 
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: 'Magnitude (Energy)',
+          color: '#94a3b8'
+        }
+      },
+      x: { 
+        display: true, 
+        ticks: { 
+          maxTicksLimit: 20,
+          font: { size: 10 }
+        },
+        title: {
+          display: true,
+          text: 'Frequency (Hz) - Diagnostic Signature',
+          color: '#94a3b8'
+        }
+      }
     },
+    plugins: {
+      tooltip: {
+        callbacks: {
+          title: (items) => `Frequency: ${items[0].label}`,
+          label: (item) => `Magnitude: ${item.parsed.y.toFixed(4)}`
+        }
+      }
+    }
   };
 
-  const currentHealthClassName = liveHealthClass === 'good' ? 'status-good' : 'status-bad';
+  const currentHealthClassName = 
+    liveHealthClass === 'good' ? 'status-good' : 
+    liveHealthClass === 'warning' ? 'status-warning' : 'status-bad';
 
   return (
     <>
+      <div className="turbine-selector" style={{ marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <label>Select Turbine:</label>
+        <select 
+          value={selectedTurbineId || ''} 
+          onChange={(e) => setSelectedTurbineId(e.target.value)}
+          style={{ padding: '8px', borderRadius: '4px', background: '#2d333b', color: 'white', border: '1px solid #444' }}
+        >
+          {turbineIds.length === 0 && <option value="">No turbines detected...</option>}
+          {turbineIds.map(id => (
+            <option key={id} value={id}>{id}</option>
+          ))}
+        </select>
+      </div>
+
       <div className="stats-row">
         <div className="stat-card">
           <h3>Turbine ID</h3>
@@ -160,6 +226,19 @@ const LiveViewContainer = () => {
       </div>
 
       <div className="chart-card live-chart-card" style={{ height: '400px' }}>
+        <div className="chart-header">
+          <h3>Real-time FFT Analysis</h3>
+          <div className="info-icon">
+            i
+            <div className="tooltip-text">
+              <strong>How to read this Diagnostic Signature:</strong>{"\n\n"}
+              • <strong>Taller Bars (Y-Axis):</strong> Represent higher vibration energy. If they grow, the mechanical stress is increasing.{"\n\n"}
+              • <strong>25Hz (First big bar):</strong> Normal rotation. If it grows too tall, the machine is UNBALANCED.{"\n\n"}
+              • <strong>50Hz/75Hz:</strong> These harmonics indicate MISALIGNMENT or LOOSE bolts.{"\n\n"}
+              • <strong>High Frequency (>2000Hz):</strong> Activity here indicates internal BEARING WEAR and grinding.
+            </div>
+          </div>
+        </div>
         <Bar data={chartData} options={chartOptions} />
       </div>
     </>
@@ -280,20 +359,35 @@ const HistoryView = React.memo(({
 
       <section className="history-summary">
         <article className="summary-card summary-good">
-          <h4>Buenos</h4>
+          <h4>Good (A/B)</h4>
           <strong>{historySummary.good}</strong>
         </article>
-        <article className="summary-card summary-bad">
-          <h4>Malos</h4>
-          <strong>{historySummary.bad}</strong>
+        <article className="summary-card summary-warning">
+          <h4>Unsatisfactory (C)</h4>
+          <strong>{historySummary.warning}</strong>
         </article>
         <article className="summary-card summary-peak">
-          <h4>Peak (Danger)</h4>
+          <h4>Danger (D)</h4>
           <strong>{historySummary.peak}</strong>
         </article>
       </section>
 
       <div className="chart-card history-chart-card">
+        <div className="chart-header">
+          <h3>Vibration Intensity Trend</h3>
+          <div className="info-icon">
+            i
+            <div className="tooltip-text">
+              <strong>How to read this Trend Analysis:</strong>{"\n\n"}
+              • <strong>The Baseline:</strong> The flat bottom line shows the machine running healthily (Zone A/B).{"\n\n"}
+              • <strong>Sharp Peaks:</strong> Represent detected anomalies or fault injections.{"\n\n"}
+              • <strong>ISO 10816:</strong> Data points are color-coded to show severity.{"\n"}
+              - <span style={{color: "#2cb67d"}}>Green</span>: Healthy{"\n"}
+              - <span style={{color: "#f97316"}}>Orange</span>: Unsatisfactory{"\n"}
+              - <span style={{color: "#ef4565"}}>Red</span>: Danger
+            </div>
+          </div>
+        </div>
         <Line data={historyChartData} options={historyChartOptions} />
       </div>
 
@@ -320,13 +414,14 @@ const HistoryView = React.memo(({
                         ? 'health-good'
                         : row.healthClass === 'peak'
                           ? 'health-peak'
-                          : 'health-bad'
+                          : row.healthClass === 'warning'
+                            ? 'health-warning'
+                            : 'health-bad'
                     }`}
                   >
                     {row.healthZone}
                   </span>
-                </td>
-              </tr>
+                </td>              </tr>
             ))}
           </tbody>
         </table>
@@ -349,6 +444,7 @@ export default function App() {
   const [historyRows, setHistoryRows] = useState([]);
   const [historyCursor, setHistoryCursor] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const historyLoadingRef = useRef(false);
   const [historyError, setHistoryError] = useState('');
   const [historyHasMore, setHistoryHasMore] = useState(false);
 
@@ -375,14 +471,14 @@ export default function App() {
       (acc, row) => {
         if (row.healthClass === 'good') {
           acc.good += 1;
-        } else if (row.healthClass === 'bad') {
-          acc.bad += 1;
-        } else {
+        } else if (row.healthClass === 'warning') {
+          acc.warning += 1;
+        } else if (row.healthClass === 'peak' || row.healthClass === 'bad') {
           acc.peak += 1;
         }
         return acc;
       },
-      { good: 0, bad: 0, peak: 0 },
+      { good: 0, warning: 0, peak: 0 },
     );
   }, [historyRows]);
 
@@ -397,10 +493,10 @@ export default function App() {
           data: recentRows.map((row) => row.rmsVelocity),
           borderColor: '#3da9fc',
           backgroundColor: recentRows.map((row) => {
-            if (row.healthClass === 'peak') {
+            if (row.healthClass === 'peak' || row.healthClass === 'bad') {
               return '#ef4565';
             }
-            if (row.healthClass === 'bad') {
+            if (row.healthClass === 'warning') {
               return '#f97316';
             }
             return '#2cb67d';
@@ -417,8 +513,23 @@ export default function App() {
       responsive: true,
       animation: false,
       scales: {
-        y: { beginAtZero: true, suggestedMax: 8 },
-        x: { ticks: { maxTicksLimit: 8 } },
+        y: { 
+          beginAtZero: true, 
+          suggestedMax: 8,
+          title: {
+            display: true,
+            text: 'RMS Velocity (mm/s) - ISO 10816',
+            color: '#94a3b8'
+          }
+        },
+        x: { 
+          ticks: { maxTicksLimit: 8 },
+          title: {
+            display: true,
+            text: 'Timeline (Capture Event)',
+            color: '#94a3b8'
+          }
+        },
       },
       plugins: {
         tooltip: {
@@ -436,7 +547,7 @@ export default function App() {
 
   const loadHistoryBatch = useCallback(
     async ({ reset = false } = {}) => {
-      if (historyLoading) {
+      if (historyLoadingRef.current) {
         return;
       }
 
@@ -450,6 +561,7 @@ export default function App() {
 
       try {
         setHistoryLoading(true);
+        historyLoadingRef.current = true;
         setHistoryError('');
         const afterTime = reset ? null : historyCursor;
         const searchParams = new URLSearchParams({
@@ -503,9 +615,10 @@ export default function App() {
         setHistoryError(error.message || 'No se pudieron cargar datos historicos.');
       } finally {
         setHistoryLoading(false);
+        historyLoadingRef.current = false;
       }
     },
-    [historyBatchSize, historyCursor, historyFilter, historyLoading, historyStartTime, historyStopTime, debouncedTurbineFilter],
+    [historyBatchSize, historyCursor, historyFilter, historyStartTime, historyStopTime, debouncedTurbineFilter],
   );
 
   useEffect(() => {
@@ -527,7 +640,7 @@ export default function App() {
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry.isIntersecting && historyHasMore && !historyLoading) {
+        if (entry.isIntersecting && historyHasMore && !historyLoadingRef.current) {
           loadHistoryBatch({ reset: false });
         }
       },
